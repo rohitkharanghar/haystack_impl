@@ -177,9 +177,58 @@ while True:
             snapshot_file = user_input[7:].strip()
             snapshot_path = os.path.join(SNAPSHOT_DIR, snapshot_file)
             if os.path.exists(snapshot_path):
-                snapshot_to_resume = load_pipeline_snapshot(snapshot_path)
+                snapshot = load_pipeline_snapshot(snapshot_path)
                 print(f"Loaded snapshot: {snapshot_file}")
-                print("Type your query to resume execution")
+                
+                # Debug: inspect snapshot structure
+                print(f"Snapshot type: {type(snapshot)}")
+                if hasattr(snapshot, '__dict__'):
+                    print(f"Snapshot attributes: {list(snapshot.__dict__.keys())}")
+                
+                # Resume immediately
+                try:
+                    print("Resuming execution...")
+                    
+                    # Agent requires messages parameter, pass empty list - snapshot has the state
+                    response = agent.run(data={}, pipeline_snapshot=snapshot)
+                    
+                    print(f"Response keys: {response.keys()}")
+                    
+                    # Extract and print the reply - check all possible locations
+                    found_response = False
+                    
+                    if response.get("replies"):
+                        found_response = True
+                        for reply in response["replies"]:
+                            content = reply.content if hasattr(reply, 'content') else (reply.text if hasattr(reply, 'text') else str(reply))
+                            print(f"\n✅ Agent (resumed): {content}")
+                    
+                    if response.get("messages"):
+                        # Find the assistant's last message
+                        for msg in reversed(response["messages"]):
+                            role = msg.role if hasattr(msg, 'role') else msg._role if hasattr(msg, '_role') else None
+                            if role == 'assistant':
+                                found_response = True
+                                content = msg.content if hasattr(msg, 'content') else (msg.text if hasattr(msg, 'text') else str(msg))
+                                print(f"\n✅ Agent (resumed): {content}")
+                                break
+                    
+                    # Check for agent-specific outputs
+                    for key in response.keys():
+                        if key not in ['messages', 'replies', 'calc_result']:
+                            print(f"Additional output [{key}]: {response[key]}")
+                    
+                    if not found_response:
+                        print(f"\n⚠️  No response found. Full output: {response}")
+                    
+                    # Print any state information if available
+                    if response.get("calc_result"):
+                        print(f"Calc Result: {response['calc_result']}")
+                        
+                except Exception as e:
+                    print(f"Error resuming: {e}")
+                    import traceback
+                    traceback.print_exc()
             else:
                 print(f"Snapshot not found: {snapshot_path}")
             continue
@@ -220,11 +269,8 @@ while True:
         # Run the agent with user input
         try:
             if snapshot_to_resume:
-                # Resume from snapshot
-                response = agent.run(
-                    messages=[ChatMessage.from_user(user_input)],
-                    pipeline_snapshot=snapshot_to_resume
-                )
+                # This shouldn't happen anymore since resume is handled above
+                response = agent.run(messages=[], pipeline_snapshot=snapshot_to_resume)
                 snapshot_to_resume = None
                 print("✅ Resumed from snapshot")
             elif agent_bp:
